@@ -1,0 +1,18 @@
+CREATE TABLE public.profiles (id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE, display_name text NOT NULL DEFAULT '', avatar_url text, created_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY profiles_read_own ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+CREATE POLICY profiles_update_own ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE FUNCTION public.create_account_profile() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$ BEGIN INSERT INTO public.profiles(id, display_name) VALUES (new.id, COALESCE(new.raw_user_meta_data ->> 'display_name','')); RETURN new; END; $$;
+CREATE TRIGGER create_account_profile AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.create_account_profile();
+CREATE TABLE public.learner_profiles (id text NOT NULL, owner_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE, data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(owner_id,id));
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.learner_profiles TO authenticated;
+GRANT ALL ON public.learner_profiles TO service_role;
+ALTER TABLE public.learner_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY learners_own ON public.learner_profiles FOR ALL TO authenticated USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
+CREATE TABLE public.user_roles (user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL, role text NOT NULL CHECK (role IN ('teacher','admin')), school_code text NOT NULL, PRIMARY KEY(user_id,role,school_code));
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT ALL ON public.user_roles TO service_role;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY roles_read_own ON public.user_roles FOR SELECT TO authenticated USING (auth.uid() = user_id);

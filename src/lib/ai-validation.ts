@@ -1,0 +1,21 @@
+import { z } from "zod";
+export const tutorRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  language: z.enum(["en", "sw"]).default("en"),
+  learnerGrade: z.string().max(60).default("Grade 8"),
+  subject: z.string().max(120).default("General"),
+  history: z
+    .array(z.object({ sender: z.enum(["user", "tutor", "model"]), text: z.string().max(4000) }))
+    .max(8)
+    .default([]),
+});
+export const quizRequestSchema = z
+  .object({
+    score: z.number().int().min(0).max(1000),
+    total: z.number().int().min(1).max(1000),
+    quizTitle: z.string().min(1).max(240),
+    subject: z.string().min(1).max(120),
+    gradeLevel: z.string().min(1).max(60),
+    missedQuestions: z.array(z.string().max(2000)).max(30).default([]),
+  })
+  .refine((data) => data.score <= data.total, { message: "Score cannot exceed total" });

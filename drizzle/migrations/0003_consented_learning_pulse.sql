@@ -1,0 +1,33 @@
+CREATE TABLE public.learning_privacy (user_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE, sharing_enabled boolean NOT NULL DEFAULT false, guardian_confirmed boolean NOT NULL DEFAULT false, updated_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT ON public.learning_privacy TO authenticated; GRANT ALL ON public.learning_privacy TO service_role;
+ALTER TABLE public.learning_privacy ENABLE ROW LEVEL SECURITY;
+CREATE POLICY privacy_own ON public.learning_privacy FOR SELECT TO authenticated USING (auth.uid()=user_id);
+CREATE TABLE public.learning_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE, kind text NOT NULL CHECK(kind IN ('lesson','quiz')), subject text NOT NULL CHECK(subject IN ('Mathematics','Science','English','Kiswahili','Other learning')), resource_id text NOT NULL CHECK(length(resource_id) BETWEEN 1 AND 120), occurred_at timestamptz NOT NULL DEFAULT now(), UNIQUE(user_id,kind,resource_id));
+GRANT SELECT ON public.learning_events TO authenticated; GRANT ALL ON public.learning_events TO service_role;
+ALTER TABLE public.learning_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY events_own ON public.learning_events FOR SELECT TO authenticated USING(auth.uid()=user_id);
+CREATE INDEX learning_events_time ON public.learning_events(occurred_at);
+CREATE TABLE public.learning_presence (user_id uuid PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE, seen_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT ON public.learning_presence TO authenticated; GRANT ALL ON public.learning_presence TO service_role;
+ALTER TABLE public.learning_presence ENABLE ROW LEVEL SECURITY;
+CREATE POLICY presence_own ON public.learning_presence FOR SELECT TO authenticated USING(auth.uid()=user_id);
+CREATE TABLE public.learning_pulse_signal (id integer PRIMARY KEY CHECK(id=1), updated_at timestamptz NOT NULL DEFAULT now());
+GRANT SELECT ON public.learning_pulse_signal TO anon, authenticated; GRANT ALL ON public.learning_pulse_signal TO service_role;
+ALTER TABLE public.learning_pulse_signal ENABLE ROW LEVEL SECURITY;
+CREATE POLICY pulse_public ON public.learning_pulse_signal FOR SELECT TO anon,authenticated USING(true);
+ALTER PUBLICATION supabase_realtime ADD TABLE public.learning_pulse_signal;
+CREATE FUNCTION public.notify_learning_pulse() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN INSERT INTO public.learning_pulse_signal(id,updated_at) VALUES(1,now()) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at; RETURN NULL; END $$;
+REVOKE ALL ON FUNCTION public.notify_learning_pulse() FROM PUBLIC,anon,authenticated;
+CREATE TRIGGER learning_event_changed AFTER INSERT OR DELETE ON public.learning_events FOR EACH STATEMENT EXECUTE FUNCTION public.notify_learning_pulse();
+CREATE TRIGGER learning_presence_changed AFTER INSERT OR UPDATE OR DELETE ON public.learning_presence FOR EACH STATEMENT EXECUTE FUNCTION public.notify_learning_pulse();
+CREATE FUNCTION public.set_learning_sharing(enabled boolean,confirmed boolean) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sign in required'; END IF; IF enabled AND NOT confirmed THEN RAISE EXCEPTION 'Adult or guardian permission required'; END IF; INSERT INTO public.learning_privacy(user_id,sharing_enabled,guardian_confirmed) VALUES(auth.uid(),enabled,confirmed) ON CONFLICT(user_id) DO UPDATE SET sharing_enabled=excluded.sharing_enabled,guardian_confirmed=excluded.guardian_confirmed,updated_at=now(); IF NOT enabled THEN DELETE FROM public.learning_events WHERE user_id=auth.uid(); DELETE FROM public.learning_presence WHERE user_id=auth.uid(); END IF; END $$;
+REVOKE ALL ON FUNCTION public.set_learning_sharing(boolean,boolean) FROM PUBLIC,anon; GRANT EXECUTE ON FUNCTION public.set_learning_sharing(boolean,boolean) TO authenticated;
+CREATE FUNCTION public.record_learning_event(event_kind text,event_subject text,event_resource text) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sign in required'; END IF; IF NOT EXISTS(SELECT 1 FROM public.learning_privacy WHERE user_id=auth.uid() AND sharing_enabled AND guardian_confirmed) THEN RETURN false; END IF; IF (SELECT count(*) FROM public.learning_events WHERE user_id=auth.uid() AND occurred_at>now()-interval '1 minute')>=10 THEN RETURN false; END IF; INSERT INTO public.learning_events(user_id,kind,subject,resource_id) VALUES(auth.uid(),event_kind,event_subject,event_resource) ON CONFLICT DO NOTHING; RETURN FOUND; END $$;
+REVOKE ALL ON FUNCTION public.record_learning_event(text,text,text) FROM PUBLIC,anon; GRANT EXECUTE ON FUNCTION public.record_learning_event(text,text,text) TO authenticated;
+CREATE FUNCTION public.touch_learning_presence() RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$ BEGIN IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sign in required'; END IF; IF EXISTS(SELECT 1 FROM public.learning_privacy WHERE user_id=auth.uid() AND sharing_enabled AND guardian_confirmed) THEN INSERT INTO public.learning_presence(user_id) VALUES(auth.uid()) ON CONFLICT(user_id) DO UPDATE SET seen_at=now(); END IF; END $$;
+REVOKE ALL ON FUNCTION public.touch_learning_presence() FROM PUBLIC,anon; GRANT EXECUTE ON FUNCTION public.touch_learning_presence() TO authenticated;
+CREATE FUNCTION public.get_learning_pulse() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+WITH today AS (SELECT * FROM public.learning_events WHERE occurred_at >= date_trunc('day',now() AT TIME ZONE 'Africa/Nairobi') AT TIME ZONE 'Africa/Nairobi'), eligible AS (SELECT count(DISTINCT user_id) n FROM today), online AS (SELECT count(*) n FROM public.learning_presence WHERE seen_at>now()-interval '2 minutes'), groups AS (SELECT kind,subject,count(*) n FROM today GROUP BY kind,subject HAVING count(DISTINCT user_id)>=5)
+SELECT jsonb_build_object('participants',CASE WHEN eligible.n>=5 THEN eligible.n ELSE 0 END,'online',CASE WHEN online.n>=5 THEN online.n ELSE 0 END,'lessons',CASE WHEN eligible.n>=5 THEN (SELECT count(*) FROM today WHERE kind='lesson') ELSE 0 END,'quizzes',CASE WHEN eligible.n>=5 THEN (SELECT count(*) FROM today WHERE kind='quiz') ELSE 0 END,'activities',CASE WHEN eligible.n>=5 THEN (SELECT count(*) FROM today) ELSE 0 END,'privacyThreshold',5,'feed',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',kind,'subject',subject,'count',n)) FROM groups),'[]'::jsonb)) FROM eligible,online;
+$$;
+REVOKE ALL ON FUNCTION public.get_learning_pulse() FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.get_learning_pulse() TO anon,authenticated;

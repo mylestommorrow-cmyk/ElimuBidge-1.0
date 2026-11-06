@@ -1,0 +1,5 @@
+{
+  "name": "ElimuBridge",
+  "description": "Kenya CBE curriculum learning portal connecting learners, teachers and schools through accessible resources, assessments and AI-powered educational support.",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
