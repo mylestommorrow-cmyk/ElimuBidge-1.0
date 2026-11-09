@@ -232,7 +232,23 @@ export interface LearnerProfile {
   unlockedBadgeIds: string[];
   weakAreas: string[];
   recentQuizScores: { quizTitle: string; score: number; total: number; date: string }[];
+  disabilityAccommodation?: string; // e.g. "Low Vision" | "ADHD" | "Autism Spectrum Disorder" | "Hearing Impairment" | "Dyslexia" | "Cerebral Palsy"
+  accessibilitySettings?: {
+    highContrast?: boolean;
+    largeFont?: boolean;
+    screenReaderOptimized?: boolean;
+    simplifiedLanguage?: boolean;
+    textToSpeech?: boolean;
+  };
 }
+
+export type ChatbotRole =
+  | "general-tutor"
+  | "stem-expert"
+  | "fast-assistant"
+  | "sne-specialist"
+  | "knec-examiner"
+  | "kiswahili-mwalimu";
 
 export interface ChatMessage {
   id: string;
@@ -241,6 +257,9 @@ export interface ChatMessage {
   timestamp: string;
   language?: "en" | "sw";
   source?: string;
+  sources?: Array<{ title: string; url: string }>;
+  modelTier?: string;
+  chatbotRole?: ChatbotRole;
 }
 
 export interface TeachingLink {
@@ -355,4 +374,154 @@ export interface DetailedQuizResult {
     curriculumRef: string;
   }[];
   aiFeedback?: string;
+}
+
+// ==========================================
+// FULL KENYAN CBE ARCHITECTURE EXTENSIONS
+// ==========================================
+
+export type CompetencyLevel = "introduced" | "practised" | "demonstrated" | "requires_support";
+
+export type CurriculumSourceType = "official_kicd" | "teacher_created";
+
+export type AssessmentRubricBand =
+  | "Exceeding Expectations"
+  | "Meeting Expectations"
+  | "Approaching Expectations"
+  | "Below Expectations";
+
+export interface AssessmentRubric {
+  exceeding: string;
+  meeting: string;
+  approaching: string;
+  below: string;
+}
+
+export interface SpecificLearningOutcome {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  experiences: string[];
+  rubric?: AssessmentRubric;
+}
+
+export interface CurriculumSubStrand {
+  id: string;
+  substrandNumber: number;
+  title: string;
+  inquiryQuestions: string[];
+  coreCompetencies: string[];
+  values: string[];
+  pcis: string[];
+  outcomes: SpecificLearningOutcome[];
+}
+
+export interface CurriculumStrandRecord {
+  id: string;
+  strandNumber: number;
+  title: string;
+  description?: string;
+  subStrands: CurriculumSubStrand[];
+}
+
+export interface ComprehensiveCurriculumRecord {
+  id: string;
+  stage: CbeStage;
+  grade: CbeGrade;
+  learningArea: string;
+  pathway?: SeniorSchoolPathway;
+  mathsType?: MathsType;
+  strands: CurriculumStrandRecord[];
+  sourceType: CurriculumSourceType;
+  sourceDocument: string;
+  sourceUrl?: string;
+  curriculumVersion: string;
+  publicationDate: string;
+  isVerified: boolean;
+  verifiedBy?: string;
+  verifiedAt?: string;
+}
+
+export type CourseworkType =
+  | "assignment"
+  | "project"
+  | "practical"
+  | "digital_lesson"
+  | "worksheet"
+  | "teacher_notes"
+  | "test";
+
+export interface CourseworkItem {
+  id: string;
+  schoolCode?: string; // If undefined/null, it is a general independent resource
+  learningArea: string;
+  gradeLevel: CbeGrade;
+  cbeStage: CbeStage;
+  pathway?: SeniorSchoolPathway;
+  strandTitle?: string;
+  subStrandTitle?: string;
+  outcomeCode?: string;
+  itemType: CourseworkType;
+  title: string;
+  description: string;
+  content?: string;
+  instructions?: string[];
+  dueDate?: string;
+  totalMarks?: number;
+  rubric?: AssessmentRubric;
+  fileUrl?: string;
+  fileType?: "pdf" | "video" | "doc" | "image";
+  authorName: string;
+  authorRole: string;
+  isPublished: boolean;
+  isSchoolOnly: boolean;
+  createdAt: string;
+}
+
+export interface CourseworkSubmission {
+  id: string;
+  courseworkId: string;
+  courseworkTitle: string;
+  learnerId: string;
+  learnerName: string;
+  gradeLevel: string;
+  schoolCode?: string;
+  submittedAt: string;
+  textSubmission?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+  status: "submitted" | "graded" | "late";
+  score?: number;
+  totalMarks?: number;
+  rubricBand?: AssessmentRubricBand;
+  feedbackNotes?: string;
+  gradedBy?: string;
+  gradedAt?: string;
+}
+
+export interface LearnerCompetencyEvaluation {
+  id: string;
+  learnerId: string;
+  outcomeCode: string;
+  outcomeTitle: string;
+  learningArea: string;
+  gradeLevel: string;
+  cbeStage: CbeStage;
+  status: CompetencyLevel;
+  evidenceNotes?: string;
+  evaluatedBy: string;
+  evaluatedAt: string;
+  rubricBand?: AssessmentRubricBand;
+}
+
+export type LearningMode = "school" | "independent";
+
+export interface SchoolClassStream {
+  id: string;
+  schoolCode: string;
+  grade: CbeGrade;
+  streamName: string;
+  facilitatorName: string;
+  learnersCount: number;
 }

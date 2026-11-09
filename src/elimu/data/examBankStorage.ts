@@ -240,16 +240,19 @@ export async function deleteExamPaper(
   const isDemo = window.location.pathname === "/demo";
   if (!isDemo) {
     try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      const { data } = await supabase.auth.getSession();
+      const { auth } = await import("@/lib/firebase");
+      const idToken = auth.currentUser
+        ? await auth.currentUser.getIdToken().catch(() => null)
+        : null;
       const response = await fetch("/api/validate-teacher-pin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}),
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
         body: JSON.stringify({ schoolCode, pin: teacherPin }),
       });
+
       const result = await response.json();
       if (!response.ok || !result.valid)
         return {

@@ -1,50 +1,56 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { onAuthStateChanged, signOut as firebaseSignOut, type User } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 const AccountContext = createContext<{
   user: User | null;
   loading: boolean;
   signOut: () => Promise<void>;
 }>({ user: null, loading: true, signOut: async () => {} });
+
 export const useAccount = () => useContext(AccountContext);
+
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const queryClient = useQueryClient();
+
   useEffect(() => {
     let alive = true;
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (!alive) return;
-      setUser(session?.user ?? null);
+      setUser(firebaseUser);
       setLoading(false);
-      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       void router.invalidate();
-      if (event !== "SIGNED_OUT") void queryClient.invalidateQueries();
-    });
-    void supabase.auth.getUser().then(({ data }) => {
-      if (alive) {
-        setUser(data.user);
-        setLoading(false);
+      if (!firebaseUser) {
+        queryClient.clear();
+      } else {
+        void queryClient.invalidateQueries();
       }
     });
+
     return () => {
       alive = false;
-      subscription.unsubscribe();
+      unsubscribe();
     };
   }, [router, queryClient]);
+
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    await firebaseSignOut(auth);
+    setUser(null);
+    try {
+      localStorage.removeItem("elimubridge_active_profile");
+    } catch {
+      // ignore
+    }
     await router.navigate({ to: "/auth", replace: true });
   }
+
   return (
     <AccountContext.Provider value={{ user, loading, signOut }}>{children}</AccountContext.Provider>
   );

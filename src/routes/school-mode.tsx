@@ -27,11 +27,13 @@ function School() {
           </ul>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild>
-              <Link to="/auth">Register Your School</Link>
+              <Link to="/app/$view" params={{ view: "school" }}>
+                Open School Mode
+              </Link>
             </Button>
             <Button asChild variant="outline">
-              <Link to="/demo" search={{ view: "portfolio" }}>
-                Explore school demo
+              <Link to="/demo" search={{ view: "school" }}>
+                Explore School Demo
               </Link>
             </Button>
           </div>

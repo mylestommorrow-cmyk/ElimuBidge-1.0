@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile document storing role, learning mode, and grade",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 200 },
+        "role": {
+          "type": "string",
+          "enum": ["student", "teacher", "school_admin", "platform_admin"]
+        },
+        "gradeLevel": { "type": "string", "maxLength": 50 },
+        "mode": { "type": "string", "enum": ["school", "independent"] },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "tokensBalance": { "type": "number" },
+        "quizzesTaken": { "type": "number" },
+        "averageScore": { "type": "number" },
+        "completedTopicsCount": { "type": "number" },
+        "lastQuizTitle": { "type": "string", "maxLength": 200 },
+        "lastQuizScore": { "type": "number" },
+        "lastQuizTotal": { "type": "number" },
+        "disabilityAccommodation": { "type": "string", "maxLength": 100 },
+        "accessibilitySettings": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "role"]
+    },
+    "LearnerActivity": {
+      "title": "LearnerActivity",
+      "description": "Tracks learner quiz results, competency ratings, and coursework",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["quiz", "coursework", "competency", "chat"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "gradeLevel": { "type": "string", "maxLength": 50 },
+        "score": { "type": "number" },
+        "total": { "type": "number" },
+        "competencyRubric": { "type": "string", "enum": ["EE", "ME", "AE", "BE"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "title"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Multi-turn Gemini chat messages with Mwalimu AI",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "model", "system"] },
+        "content": { "type": "string", "maxLength": 10000 },
+        "groundingSources": { "type": "string", "maxLength": 2000 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "role", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document keyed by auth UID"
+    },
+    "/users/{userId}/activities/{activityId}": {
+      "schema": "LearnerActivity",
+      "description": "Subcollection of learner activities and assessment records"
+    },
+    "/users/{userId}/chat_history/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Subcollection of multi-turn AI tutor conversations"
+    }
+  }
+}

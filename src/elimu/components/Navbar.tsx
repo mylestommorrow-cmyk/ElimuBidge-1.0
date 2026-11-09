@@ -30,6 +30,7 @@ interface NavbarProps {
   studyStreak: number;
   onLaunchGame: () => void;
   onToggleSidebar?: () => void;
+  onOpenAccessibilityModal?: () => void;
 }
 export function Navbar({
   activeTab,
@@ -45,6 +46,7 @@ export function Navbar({
   studyStreak,
   onLaunchGame,
   onToggleSidebar,
+  onOpenAccessibilityModal,
 }: NavbarProps) {
   const [streakOpen, setStreakOpen] = useState(false);
   return (
@@ -150,6 +152,17 @@ export function Navbar({
               </div>
             )}
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Learners with Disability & Accessibility Support"
+            title="Learners with Disability & Accessibility Support"
+            className="h-9 px-2.5 gap-1.5 text-purple-700 hover:text-purple-900 border-purple-200 bg-purple-50/70 hover:bg-purple-100 font-bold text-xs"
+            onClick={onOpenAccessibilityModal}
+          >
+            <span className="text-sm">♿</span>
+            <span className="hidden sm:inline">Disability Support</span>
+          </Button>
           <Button
             variant="outline"
             size="icon"

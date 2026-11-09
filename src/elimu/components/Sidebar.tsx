@@ -68,6 +68,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: TrendingUp,
     },
     {
+      id: "school" as const,
+      label: "School Mode",
+      subtitle: `${activeSchoolCode} Hub & Classes`,
+      icon: School,
+    },
+    {
+      id: "coursework" as const,
+      label: "Coursework & Tasks",
+      subtitle: "Assignments, Labs & Projects",
+      icon: FileText,
+    },
+    {
+      id: "competencies" as const,
+      label: "Competency Matrix",
+      subtitle: "4-Level Outcome Mastery",
+      icon: Award,
+    },
+    {
       id: "library" as const,
       label: "CBE Catalog",
       subtitle: "Playgroup to Grade 12",
@@ -134,6 +152,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       subtitle: `${offlineCount} Lessons Cached`,
       icon: ArrowDownToLine,
       badge: offlineCount > 0 ? `${offlineCount}` : undefined,
+    },
+    {
+      id: "admin" as const,
+      label: "Curriculum Admin",
+      subtitle: "KICD Verification & Publishing",
+      icon: ShieldCheck,
     },
   ];
 

@@ -58,11 +58,11 @@ describe("AI request validation", () => {
 });
 describe("Offline preview isolation", () => {
   it.each([
-    "id-preview--abc.lovable.app",
-    "preview-2--abc.lovable.app",
-    "project--abc-dev.lovable.app",
-    "beta.lovable.dev",
-    "example.lovableproject.com",
+    "id-preview--abc.preview.app",
+    "preview-2--abc.preview.app",
+    "project--abc-dev.preview.app",
+    "beta.preview.dev",
+    "example.preview-project.com",
   ])("does not register offline on %s", (host) => expect(isPreviewHostname(host)).toBe(true));
   it("allows published custom domains", () =>
     expect(isPreviewHostname("preview-v2--school.example.com")).toBe(false));

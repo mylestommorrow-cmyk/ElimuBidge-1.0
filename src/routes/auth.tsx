@@ -1,9 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, Mail, LoaderCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
-import "@lovable.dev/cloud-auth-js/styles.css";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+} from "firebase/auth";
+import { auth, googleAuthProvider, signInWithPopup } from "@/lib/firebase";
+import { syncUserProfileToFirestore } from "@/lib/firestore-sync";
 import { useAccount } from "@/components/account/AccountProvider";
 import { Button } from "@/components/ui/button";
 
@@ -29,6 +34,15 @@ function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [role, setRole] = useState<"student" | "teacher" | "school_admin" | "platform_admin">(
+    "student",
+  );
+  const [learningMode, setLearningMode] = useState<"independent" | "school">("independent");
+  const [grade, setGrade] = useState("Grade 7");
+  const [pathway, setPathway] = useState<"STEM" | "Social Sciences" | "Arts and Sports Science">(
+    "STEM",
+  );
+  const [schoolCode, setSchoolCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -44,41 +58,113 @@ function Auth() {
     setMessage("");
     try {
       if (mode === "forgot") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
-        if (error) throw error;
-        setMessage("If an account exists, a password reset link has been sent to your email.");
+        await sendPasswordResetEmail(auth, email);
+        setMessage("A password reset link has been sent to your email from Firebase Auth.");
       } else if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin, data: { display_name: name.trim() } },
-        });
-        if (error) throw error;
-        if (!data.session) setMessage("Check your email to confirm your account, then sign in.");
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const fbUser = userCredential.user;
+        if (name.trim()) {
+          await updateProfile(fbUser, { displayName: name.trim() });
+        }
+        // Save local session state for instant personalized onboarding
+        try {
+          localStorage.setItem("elimubridge_user_role", role);
+          localStorage.setItem(
+            "elimubridge_learning_mode",
+            role === "student" ? learningMode : "school",
+          );
+          localStorage.setItem("elimubridge_selected_grade", grade);
+          if (schoolCode.trim()) {
+            localStorage.setItem("elimubridge_school_code", schoolCode.trim().toUpperCase());
+          }
+          localStorage.setItem(
+            "elimubridge_active_profile",
+            JSON.stringify({
+              id: fbUser.uid,
+              name: name.trim() || "Elimu Learner",
+              grade,
+              role,
+              mode: learningMode,
+              seniorPathway: grade.includes("Grade 1") ? pathway : undefined,
+            }),
+          );
+        } catch {
+          // ignore localStorage error
+        }
+        try {
+          await syncUserProfileToFirestore(fbUser.uid, {
+            displayName: name.trim() || "Elimu Learner",
+            email,
+            role: role as any,
+            gradeLevel: grade,
+            mode: learningMode as any,
+          });
+        } catch (fsErr) {
+          console.warn("Firestore profile sync warning:", fsErr);
+        }
+        await navigate({ to: "/dashboard" });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const fbUser = userCredential.user;
+        try {
+          await syncUserProfileToFirestore(fbUser.uid, {
+            displayName: fbUser.displayName || name || "Elimu Learner",
+            email: fbUser.email || email,
+            role: role as any,
+            gradeLevel: grade,
+            mode: learningMode as any,
+          });
+        } catch (fsErr) {
+          console.warn("Firestore profile sync warning:", fsErr);
+        }
         await navigate({ to: "/dashboard" });
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Please try again.");
+    } catch (err: any) {
+      const errMsg = err?.message || "Please check your credentials and try again.";
+      setError(errMsg);
     } finally {
       setBusy(false);
     }
   }
-  async function social(provider: "google" | "lovable") {
+  async function signInWithGoogle() {
     setBusy(true);
     setError("");
     try {
-      const result = await lovable.auth.signInWithOAuth(provider, {
-        redirect_uri: `${window.location.origin}/auth`,
+      // 1. Google Sign-in with Firebase Auth popup
+      const result = await signInWithPopup(auth, googleAuthProvider);
+      const fbUser = result.user;
+
+      // 2. Persist profile to Firestore
+      await syncUserProfileToFirestore(fbUser.uid, {
+        displayName: fbUser.displayName || name || "Elimu Learner",
+        email: fbUser.email || undefined,
+        role: (role as any) || "student",
+        gradeLevel: grade || "Grade 7",
+        mode: (learningMode as any) || "independent",
+        photoURL: fbUser.photoURL || undefined,
       });
-      if (result.error) throw result.error;
-      if (!result.redirected) await navigate({ to: "/dashboard" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed.");
+
+      // 3. Store active profile locally
+      try {
+        localStorage.setItem(
+          "elimubridge_active_profile",
+          JSON.stringify({
+            id: fbUser.uid,
+            name: fbUser.displayName || name || "Elimu Learner",
+            grade,
+            role,
+            mode: learningMode,
+            seniorPathway: grade.includes("Grade 1") ? pathway : undefined,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+
+      await navigate({ to: "/dashboard" });
+    } catch (err: any) {
+      console.error("Firebase Google Auth error:", err);
+      setError(err instanceof Error ? err.message : "Google sign-in failed. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -114,7 +200,7 @@ function Auth() {
                 variant="outline"
                 className="google-signin h-11 w-full"
                 disabled={busy}
-                onClick={() => void social("google")}
+                onClick={() => void signInWithGoogle()}
               >
                 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24">
                   <path
@@ -136,13 +222,6 @@ function Auth() {
                 </svg>
                 Continue with Google
               </Button>
-              <Button
-                className="lovable-auth-button h-11 w-full"
-                disabled={busy}
-                onClick={() => void social("lovable")}
-              >
-                Continue with Lovable
-              </Button>
               <div className="py-2 text-center text-xs text-muted-foreground">
                 or continue with email
               </div>
@@ -150,20 +229,167 @@ function Auth() {
           )}
           <form onSubmit={submit} className="mt-5 space-y-4">
             {mode === "signup" && (
-              <div>
-                <label htmlFor="name" className="text-sm font-semibold">
-                  Display name
-                </label>
-                <input
-                  id="name"
-                  autoComplete="name"
-                  required
-                  maxLength={120}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="account-input"
-                />
-              </div>
+              <>
+                <div>
+                  <label htmlFor="name" className="text-sm font-semibold">
+                    Display name
+                  </label>
+                  <input
+                    id="name"
+                    autoComplete="name"
+                    required
+                    maxLength={120}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="account-input"
+                    placeholder="e.g. Amani Mwangi"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold">User Role</label>
+                  <div className="mt-1.5 grid grid-cols-2 gap-2">
+                    {[
+                      { id: "student", label: "Student", icon: "🎓" },
+                      { id: "teacher", label: "Teacher", icon: "👩‍🏫" },
+                      { id: "school_admin", label: "School Admin", icon: "🏫" },
+                      { id: "platform_admin", label: "Platform Admin", icon: "🛡️" },
+                    ].map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setRole(r.id as any)}
+                        className={`flex items-center gap-2 rounded-lg border p-2.5 text-left text-xs transition ${
+                          role === r.id
+                            ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                            : "border-border bg-card text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <span>{r.icon}</span>
+                        <span>{r.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {role === "student" && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                    <label className="text-xs font-semibold text-foreground">
+                      Learning Access Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLearningMode("independent")}
+                        className={`rounded-md p-2 text-left text-xs transition ${
+                          learningMode === "independent"
+                            ? "border border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold"
+                            : "border border-border bg-background text-muted-foreground"
+                        }`}
+                      >
+                        <div className="font-semibold flex items-center gap-1">🌟 Independent</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          Self-study & AI tutor
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLearningMode("school")}
+                        className={`rounded-md p-2 text-left text-xs transition ${
+                          learningMode === "school"
+                            ? "border border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200 font-bold"
+                            : "border border-border bg-background text-muted-foreground"
+                        }`}
+                      >
+                        <div className="font-semibold flex items-center gap-1">🏫 School Mode</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">
+                          Teacher notes & tests
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {(role === "student" || role === "teacher") && (
+                  <div>
+                    <label htmlFor="grade-select" className="text-sm font-semibold">
+                      Curriculum Grade (CBE)
+                    </label>
+                    <select
+                      id="grade-select"
+                      value={grade}
+                      onChange={(e) => setGrade(e.target.value)}
+                      className="account-input mt-1"
+                    >
+                      <optgroup label="Early Years">
+                        <option value="Playgroup">Playgroup</option>
+                        <option value="PP1">PP1 (Pre-Primary 1)</option>
+                        <option value="PP2">PP2 (Pre-Primary 2)</option>
+                      </optgroup>
+                      <optgroup label="Lower Primary">
+                        <option value="Grade 1">Grade 1</option>
+                        <option value="Grade 2">Grade 2</option>
+                        <option value="Grade 3">Grade 3</option>
+                      </optgroup>
+                      <optgroup label="Upper Primary">
+                        <option value="Grade 4">Grade 4</option>
+                        <option value="Grade 5">Grade 5</option>
+                        <option value="Grade 6">Grade 6</option>
+                      </optgroup>
+                      <optgroup label="Junior School">
+                        <option value="Grade 7">Grade 7</option>
+                        <option value="Grade 8">Grade 8</option>
+                        <option value="Grade 9">Grade 9</option>
+                      </optgroup>
+                      <optgroup label="Senior School">
+                        <option value="Grade 10">Grade 10</option>
+                        <option value="Grade 11">Grade 11</option>
+                        <option value="Grade 12">Grade 12</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                )}
+
+                {(grade.startsWith("Grade 10") ||
+                  grade.startsWith("Grade 11") ||
+                  grade.startsWith("Grade 12")) && (
+                  <div>
+                    <label className="text-sm font-semibold">Senior School Pathway</label>
+                    <select
+                      value={pathway}
+                      onChange={(e) => setPathway(e.target.value as any)}
+                      className="account-input mt-1"
+                    >
+                      <option value="STEM">🔬 STEM (Science, Tech, Eng, Math)</option>
+                      <option value="Social Sciences">🌍 Social Sciences & Humanities</option>
+                      <option value="Arts and Sports Science">🎨 Arts & Sports Science</option>
+                    </select>
+                  </div>
+                )}
+
+                {(role === "teacher" ||
+                  role === "school_admin" ||
+                  (role === "student" && learningMode === "school")) && (
+                  <div>
+                    <label
+                      htmlFor="school-code"
+                      className="text-sm font-semibold flex items-center justify-between"
+                    >
+                      <span>School Code</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        e.g. ELIMU-001
+                      </span>
+                    </label>
+                    <input
+                      id="school-code"
+                      value={schoolCode}
+                      onChange={(e) => setSchoolCode(e.target.value)}
+                      placeholder="e.g. ELIMU-001 (Nairobi Pioneer Academy)"
+                      className="account-input uppercase mt-1"
+                    />
+                  </div>
+                )}
+              </>
             )}
             <div>
               <label htmlFor="email" className="text-sm font-semibold">

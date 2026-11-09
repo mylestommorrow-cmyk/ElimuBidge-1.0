@@ -1,20 +1,26 @@
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+const requestTimestamps = new Map<string, number[]>();
+
 export async function authorizeLiveAI(
   request: Request,
-  url: string | undefined,
-  key: string | undefined,
+  _url?: string,
+  _key?: string,
 ): Promise<"allowed" | "guest" | "limited"> {
   const header = request.headers.get("authorization");
-  if (!url || !key || !header?.startsWith("Bearer ")) return "guest";
-  const token = header.slice(7);
-  const client = createClient<Database>(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: header } },
-  });
-  const { data, error } = await client.auth.getUser(token);
-  if (error || !data.user) return "guest";
-  const { data: allowed, error: limitError } = await client.rpc("consume_ai_request");
-  if (limitError || !allowed) return "limited";
+  const clientIdentifier =
+    (header?.startsWith("Bearer ") ? header.slice(7, 35) : null) ||
+    request.headers.get("x-forwarded-for") ||
+    "guest-client";
+
+  const now = Date.now();
+  const timestamps = requestTimestamps.get(clientIdentifier) || [];
+  const recent = timestamps.filter((t) => now - t < 60000);
+
+  if (recent.length >= 30) {
+    return "limited";
+  }
+
+  recent.push(now);
+  requestTimestamps.set(clientIdentifier, recent);
+
   return "allowed";
 }

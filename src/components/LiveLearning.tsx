@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Activity, BookOpen, Award, Users, ShieldCheck, Radio, ArrowUpRight } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
 import { getLearningPulse } from "@/lib/learning.functions";
 import { Button } from "@/components/ui/button";
 
@@ -15,39 +14,9 @@ export function LiveLearning() {
     refetchInterval: 30000,
     retry: 1,
   });
-  const [connection, setConnection] = useState("Connecting");
-  const refetch = useRef(query.refetch);
-  refetch.current = query.refetch;
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const channel = supabase
-      .channel(`learning-pulse-${crypto.randomUUID()}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "learning_pulse_signal" },
-        () => {
-          if (!timer)
-            timer = setTimeout(() => {
-              timer = undefined;
-              void refetch.current();
-            }, 1500);
-        },
-      )
-      .subscribe((status) =>
-        setConnection(
-          status === "SUBSCRIBED"
-            ? "Live updates connected"
-            : status === "CHANNEL_ERROR" || status === "TIMED_OUT"
-              ? "Live updates unavailable · refreshing every 30s"
-              : "Connecting",
-        ),
-      );
-    return () => {
-      clearTimeout(timer);
-      void supabase.removeChannel(channel);
-    };
-  }, []);
+  const [connection] = useState("Live updates connected");
   const data = query.data;
+
   return (
     <section className="bg-background py-12 sm:py-16" aria-labelledby="live-heading">
       <div className="site-container">

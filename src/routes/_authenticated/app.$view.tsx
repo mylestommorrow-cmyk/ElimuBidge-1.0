@@ -1,11 +1,12 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { AccountPortal, accountProfilesOptions } from "@/components/AccountPortal";
-import { isAppView, VIEW_LABELS } from "@/lib/app-navigation";
+import { isAppView, normalizeAppView, VIEW_LABELS } from "@/lib/app-navigation";
 export const Route = createFileRoute("/_authenticated/app/$view")({
   loader: async ({ params, context }) => {
-    if (!isAppView(params.view)) throw notFound();
+    const view = normalizeAppView(params.view);
+    if (!view) throw notFound();
     await context.queryClient.ensureQueryData(accountProfilesOptions);
-    return { view: params.view };
+    return { view };
   },
   head: ({ loaderData }) => {
     const title = `${loaderData ? VIEW_LABELS[loaderData.view] : "Learning space"} | ElimuBridge`;

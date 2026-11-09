@@ -22,12 +22,8 @@ export const Route = createFileRoute("/api/quiz-analysis")({
             { error: "Valid quiz score and details are required" },
             { status: 400 },
           );
-        const { score, total, quizTitle, subject, gradeLevel, missedQuestions } = parsed.data;
-        const live = await authorizeLiveAI(
-          request,
-          process.env["SUPABASE_URL"],
-          process.env["SUPABASE_PUBLISHABLE_KEY"],
-        );
+        const live = await authorizeLiveAI(request);
+
         if (live === "limited")
           return Response.json(
             { error: "Please wait a minute before requesting another report." },

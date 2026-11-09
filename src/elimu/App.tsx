@@ -52,6 +52,11 @@ import { SchoolPortfolioView } from "./components/SchoolPortfolioView";
 import { GameArcadeHub } from "./components/GameArcadeHub";
 import { CurriculumView } from "./components/CurriculumView";
 import { ExamBankView } from "./components/ExamBankView";
+import { SchoolModeHub } from "./components/SchoolModeHub";
+import { CourseworkView } from "./components/CourseworkView";
+import { CompetencyTrackerView } from "./components/CompetencyTrackerView";
+import { AdminCurriculumView } from "./components/AdminCurriculumView";
+import { AccessibilityModal, type AccessibilitySettings } from "./components/AccessibilityModal";
 import { MobileBottomNav, AppTabType } from "./components/MobileBottomNav";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import {
@@ -156,6 +161,7 @@ export default function App({
   // Modals and deep linking state
   const [selectedTopicForModal, setSelectedTopicForModal] = useState<StudyTopic | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState<boolean>(false);
+  const [accessibilityModalOpen, setAccessibilityModalOpen] = useState<boolean>(false);
   const [targetQuizId, setTargetQuizId] = useState<string | undefined>(undefined);
   const [prefilledTutorPrompt, setPrefilledTutorPrompt] = useState<string | undefined>(undefined);
 
@@ -373,6 +379,8 @@ export default function App({
     const isPerfect = score === total;
     const earnedTokens = isPerfect ? 75 : 25; // Bonus tokens for high score!
 
+    let updatedLearnerProfile: LearnerProfile | null = null;
+
     setProfiles((prev) =>
       prev.map((prof) => {
         if (prof.id === activeProfileId) {
@@ -393,7 +401,7 @@ export default function App({
             newUnlockedBadges.push("badge-high-accuracy");
           }
 
-          return {
+          const updated: LearnerProfile = {
             ...prof,
             quizzesTaken: newQuizzesTaken,
             averageScore: newAverageScore,
@@ -410,10 +418,80 @@ export default function App({
               ...prof.recentQuizScores.slice(0, 4),
             ],
           };
+          updatedLearnerProfile = updated;
+          return updated;
         }
         return prof;
       }),
     );
+
+    // Trigger a Firestore update that persists the learner's quiz scores and token balances to their cloud profile
+    import("@/lib/firestore-sync")
+      .then(({ persistLearnerScoreToFirestore }) => {
+        const prof = updatedLearnerProfile || activeProfile;
+        const currentTokens = (prof.tokensBalance || 0) + earnedTokens;
+        const currentQuizzes = prof.quizzesTaken + 1;
+        const currentAverage = Math.round(
+          (prof.averageScore * prof.quizzesTaken + percentage) / currentQuizzes,
+        );
+
+        persistLearnerScoreToFirestore({
+          userId: prof.id || "default-learner",
+          displayName: prof.name,
+          quizTitle,
+          score,
+          total,
+          percentage,
+          tokensBalance: updatedLearnerProfile
+            ? updatedLearnerProfile.tokensBalance
+            : currentTokens,
+          quizzesTaken: updatedLearnerProfile ? updatedLearnerProfile.quizzesTaken : currentQuizzes,
+          averageScore: updatedLearnerProfile ? updatedLearnerProfile.averageScore : currentAverage,
+          completedTopicsCount: prof.completedTopicsCount + (score >= total * 0.7 ? 1 : 0),
+          disabilityAccommodation: prof.disabilityAccommodation,
+        })
+          .then(() => {
+            toast.success(
+              `Cloud Synced: Score (${score}/${total}) & +${earnedTokens} Tokens saved to Cloud Profile!`,
+            );
+          })
+          .catch((err) => {
+            console.warn("Firestore profile score sync note:", err);
+          });
+      })
+      .catch((err) => {
+        console.warn("Could not load firestore-sync module:", err);
+      });
+  };
+
+  // Update learner disability accommodation & accessibility preferences in local and cloud profile
+  const handleUpdateProfileAccessibility = (
+    accommodation: string,
+    settings: AccessibilitySettings,
+  ) => {
+    setProfiles((prev) =>
+      prev.map((prof) => {
+        if (prof.id === activeProfileId) {
+          return {
+            ...prof,
+            disabilityAccommodation: accommodation,
+            accessibilitySettings: settings,
+          };
+        }
+        return prof;
+      }),
+    );
+
+    // Sync to Firestore cloud profile
+    import("@/lib/firestore-sync")
+      .then(({ syncDisabilityAccommodationToFirestore }) => {
+        syncDisabilityAccommodationToFirestore(
+          activeProfile.id || "default-learner",
+          accommodation,
+          settings,
+        ).catch((err) => console.warn("Firestore disability sync note:", err));
+      })
+      .catch((err) => console.warn("Failed to load firestore-sync", err));
   };
 
   // Deep link to Quiz from notes or hero
@@ -547,6 +625,7 @@ export default function App({
           studyStreak={studyStreak}
           onLaunchGame={() => setActiveTab("game")}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+          onOpenAccessibilityModal={() => setAccessibilityModalOpen(true)}
         />
 
         {/* Main Content Area */}
@@ -560,6 +639,36 @@ export default function App({
               onProfiles={() => setProfileModalOpen(true)}
             />
           )}
+
+          {/* School Mode Hub Tab */}
+          {activeTab === "school" && (
+            <SchoolModeHub
+              activeProfile={activeProfile}
+              activeSchool={activeSchool}
+              allSchools={schools}
+              onSelectSchool={handleSelectSchool}
+              onOpenSchoolModal={() => setSchoolModalOpen(true)}
+              onNavigateToCoursework={() => setActiveTab("coursework")}
+              onNavigateToCompetencies={() => setActiveTab("competencies")}
+            />
+          )}
+
+          {/* Coursework Management Tab */}
+          {activeTab === "coursework" && (
+            <CourseworkView
+              activeProfile={activeProfile}
+              activeSchool={activeSchool}
+              onAskAITutor={handleAskAITutor}
+            />
+          )}
+
+          {/* Competency Tracking Tab */}
+          {activeTab === "competencies" && (
+            <CompetencyTrackerView activeProfile={activeProfile} onAskAITutor={handleAskAITutor} />
+          )}
+
+          {/* Curriculum Admin Console Tab */}
+          {activeTab === "admin" && <AdminCurriculumView onAskAITutor={handleAskAITutor} />}
           {activeTab === "library" && (
             <div className="space-y-6">
               {/* Hero Section */}
@@ -649,6 +758,7 @@ export default function App({
                   setSelectedGrade(grade as CbeGrade);
                   setActiveTab("library");
                 }}
+                onAskAITutor={handleAskAITutor}
               />
             </div>
           )}
@@ -740,6 +850,7 @@ export default function App({
                 activeProfile={activeProfile}
                 prefilledPrompt={prefilledTutorPrompt}
                 onClearPrefill={() => setPrefilledTutorPrompt(undefined)}
+                onOpenAccessibilityModal={() => setAccessibilityModalOpen(true)}
               />
             </div>
           )}
@@ -859,6 +970,14 @@ export default function App({
           activeProfileId={activeProfileId}
           onSelectProfile={setActiveProfileId}
           onAddProfile={handleAddProfile}
+        />
+
+        {/* Learners with Disability & Accessibility Modal */}
+        <AccessibilityModal
+          isOpen={accessibilityModalOpen}
+          onClose={() => setAccessibilityModalOpen(false)}
+          activeProfile={activeProfile}
+          onUpdateProfileAccessibility={handleUpdateProfileAccessibility}
         />
 
         {/* Institutional ELIMU BRIDGE Footer with Official Logo */}

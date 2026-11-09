@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { RevisionQuiz, QuizQuestion, LearnerProfile, DetailedQuizResult } from "../types";
 import { REVISION_QUIZZES } from "../data/quizzes";
 import { build30QuestionExam } from "../data/quizExamEngine";
+import { evaluateCompetency } from "../data/competencyStorage";
 import { QuizResultsView } from "./QuizResultsView";
 import {
   CheckCircle2,
@@ -18,6 +19,8 @@ import {
   TrendingUp,
   Clock,
   ShieldCheck,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 interface QuizPlayerProps {
@@ -121,6 +124,25 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
   };
 
   const currentQ: QuizQuestion = examQuestions[currentQuestionIdx] || examQuestions[0];
+  const [isSpeakingQuestion, setIsSpeakingQuestion] = useState(false);
+
+  const handleSpeakQuestion = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (isSpeakingQuestion) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingQuestion(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    setIsSpeakingQuestion(true);
+
+    const questionText = `Question ${currentQuestionIdx + 1}. ${currentQ.question}. The options are: ${currentQ.options.map((opt, i) => `Option ${String.fromCharCode(65 + i)}: ${opt}`).join(". ")}`;
+    const utterance = new SpeechSynthesisUtterance(questionText);
+    utterance.rate = 0.95;
+    utterance.onend = () => setIsSpeakingQuestion(false);
+    utterance.onerror = () => setIsSpeakingQuestion(false);
+    window.speechSynthesis.speak(utterance);
+  };
 
   const handleSelectOption = (idx: number) => {
     if (hasSubmittedAnswer) return; // Prevent changing after submission
@@ -183,6 +205,57 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
     else if (percentage >= 65) performanceBand = "Meeting Expectations";
     else if (percentage >= 50) performanceBand = "Approaching Expectations";
 
+    // Auto-award competency evaluation based on performanceBand & strand
+    const competencyStatus =
+      performanceBand === "Exceeding Expectations" || performanceBand === "Meeting Expectations"
+        ? "demonstrated"
+        : performanceBand === "Approaching Expectations"
+          ? "practised"
+          : "requires_support";
+
+    const rubricShort =
+      performanceBand === "Exceeding Expectations"
+        ? "EE"
+        : performanceBand === "Meeting Expectations"
+          ? "ME"
+          : performanceBand === "Approaching Expectations"
+            ? "AE"
+            : "BE";
+
+    try {
+      evaluateCompetency({
+        learnerId: activeProfile.id || "demo-learner-1",
+        outcomeCode: `QZ.${selectedQuiz.id.toUpperCase()}`,
+        outcomeTitle: `${selectedQuiz.title} (${rubricShort})`,
+        learningArea: selectedQuiz.subject,
+        gradeLevel: selectedQuiz.gradeLevel || activeProfile.grade || "Grade 7",
+        cbeStage: "Junior School",
+        status: competencyStatus,
+        evidenceNotes: `Auto-evaluated via CBE formative assessment: scored ${percentage}% (${finalScore}/${totalQuestions}) - Rubric Band: ${performanceBand} (${rubricShort}).`,
+        evaluatedBy: "ElimuBridge Automated Formative Assessment Engine",
+        evaluatedAt: new Date().toISOString().slice(0, 10),
+        rubricBand: performanceBand,
+      });
+
+      // Record to Firestore persistence
+      import("@/lib/firestore-sync")
+        .then(({ recordLearnerActivityToFirestore }) => {
+          recordLearnerActivityToFirestore({
+            userId: activeProfile.id || "demo-learner-1",
+            type: "quiz",
+            title: selectedQuiz.title,
+            subject: selectedQuiz.subject,
+            gradeLevel: selectedQuiz.gradeLevel || activeProfile.grade || "Grade 7",
+            score: finalScore,
+            total: totalQuestions,
+            competencyRubric: rubricShort as "EE" | "ME" | "AE" | "BE",
+          }).catch(console.warn);
+        })
+        .catch(console.warn);
+    } catch {
+      // ignore
+    }
+
     const missed = answersLog.filter((a) => !a.isCorrect);
 
     const initialResult: DetailedQuizResult = {
@@ -224,16 +297,17 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
     // Call server Gemini API for personalized evaluation
     try {
       setIsGeneratingAiReport(true);
-      const { supabase } = await import("@/integrations/supabase/client");
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { auth } = await import("@/lib/firebase");
+      const idToken = auth.currentUser
+        ? await auth.currentUser.getIdToken().catch(() => null)
+        : null;
       const res = await fetch("/api/quiz-analysis", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(sessionData.session
-            ? { Authorization: `Bearer ${sessionData.session.access_token}` }
-            : {}),
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
+
         body: JSON.stringify({
           score: finalScore,
           total: totalQuestions,
@@ -388,8 +462,32 @@ export const QuizPlayer: React.FC<QuizPlayerProps> = ({
           {/* Question Body */}
           <div className="p-6 sm:p-8 space-y-6">
             <div className="space-y-2">
-              <div className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
-                {currentQ.curriculumRef}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
+                  {currentQ.curriculumRef}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSpeakQuestion}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isSpeakingQuestion
+                      ? "bg-purple-100 text-purple-900 border border-purple-300"
+                      : "bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
+                  }`}
+                  title="Listen to Question (Text-to-Speech for disability assistance)"
+                >
+                  {isSpeakingQuestion ? (
+                    <>
+                      <VolumeX className="w-3.5 h-3.5" />
+                      <span>Stop Reading</span>
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Listen to Question</span>
+                    </>
+                  )}
+                </button>
               </div>
               <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-relaxed">
                 {currentQ.question}

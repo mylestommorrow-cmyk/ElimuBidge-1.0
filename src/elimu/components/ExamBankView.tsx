@@ -212,18 +212,19 @@ export const ExamBankView: React.FC<ExamBankViewProps> = ({
     // Legacy PINs apply only to the explicit on-device demonstration.
     const isDemo = window.location.pathname === "/demo";
     try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { auth } = await import("@/lib/firebase");
+      const idToken = auth.currentUser
+        ? await auth.currentUser.getIdToken().catch(() => null)
+        : null;
       const res = await fetch("/api/validate-teacher-pin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(sessionData.session
-            ? { Authorization: `Bearer ${sessionData.session.access_token}` }
-            : {}),
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
         body: JSON.stringify({ schoolCode: uploadSchoolCode, pin: uploadTeacherPin }),
       });
+
       const data = await res.json();
       if (
         !data.valid &&

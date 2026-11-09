@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { LearnerProfile } from "../types";
 import { X, UserPlus, Check, Users, Sparkles, GraduationCap, School, Camera } from "lucide-react";
 import { AVATAR_PRESETS } from "../data/profiles";
+import { toast } from "sonner";
 
 interface ProfileManagerModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
   );
   const [customAvatarUrl, setCustomAvatarUrl] = useState("");
   const [role, setRole] = useState<"learner" | "teacher">("learner");
+  const [disabilityAccommodation, setDisabilityAccommodation] = useState("None");
 
   const gradeOptions = [
     { label: "Playgroup (Early Childhood)", value: "Playgroup", level: "CBE" as const },
@@ -78,12 +80,62 @@ export const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
       regNo: `EB-CBE-2026-${Math.floor(1000 + Math.random() * 9000)}`,
       academicStanding: "Exemplary Standing · Active CBE Learner",
       gpa: "3.90 / 4.00",
+      disabilityAccommodation:
+        disabilityAccommodation !== "None" ? disabilityAccommodation : undefined,
     });
 
     setName("");
     setSchoolName("");
     setCustomAvatarUrl("");
     setIsAdding(false);
+  };
+
+  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setIsSigningInGoogle(true);
+    try {
+      const { auth, googleAuthProvider, signInWithPopup } = await import("@/lib/firebase");
+      const result = await signInWithPopup(auth, googleAuthProvider);
+      const user = result.user;
+
+      const { syncUserProfileToFirestore, getUserProfileFromFirestore } =
+        await import("@/lib/firestore-sync");
+      const cloudProfile = await getUserProfileFromFirestore(user.uid);
+
+      onAddProfile({
+        name: user.displayName || "Google Learner",
+        grade: cloudProfile?.gradeLevel || "Grade 8",
+        level: "CBE",
+        schoolName: "Kenya CBE Academy",
+        avatarColor: "bg-[#002B49]",
+        avatarUrl: user.photoURL || undefined,
+        role: (cloudProfile?.role as any) || "learner",
+        regNo: `EB-GGL-${user.uid.slice(0, 6).toUpperCase()}`,
+        academicStanding: "Verified Google Cloud Profile",
+        gpa: "3.95 / 4.00",
+        disabilityAccommodation: cloudProfile?.disabilityAccommodation,
+      });
+
+      await syncUserProfileToFirestore(user.uid, {
+        displayName: user.displayName || "Google Learner",
+        email: user.email || undefined,
+        role: (cloudProfile?.role as any) || "student",
+        gradeLevel: cloudProfile?.gradeLevel || "Grade 8",
+        photoURL: user.photoURL || undefined,
+      });
+
+      toast.success(
+        `Signed in with Google as ${user.displayName || user.email}! Cloud profile synchronized.`,
+      );
+      onClose();
+    } catch (err: any) {
+      if (err?.code !== "auth/popup-closed-by-user") {
+        toast.error("Google sign-in could not complete. Please try again.");
+      }
+    } finally {
+      setIsSigningInGoogle(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -164,6 +216,13 @@ export const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                                   Teacher
                                 </span>
                               )}
+                              {profile.disabilityAccommodation &&
+                                profile.disabilityAccommodation !== "None" && (
+                                  <span className="text-[10px] bg-purple-100 text-purple-900 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                    <span>♿</span>
+                                    <span>{profile.disabilityAccommodation}</span>
+                                  </span>
+                                )}
                             </div>
                             <div className="text-xs text-slate-500">
                               {profile.grade} · {profile.schoolName}
@@ -185,13 +244,46 @@ export const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                 </div>
               </div>
 
-              <button
-                onClick={() => setIsAdding(true)}
-                className="w-full py-3 rounded-2xl border-2 border-dashed border-[#002B49]/40 hover:border-[#002B49] bg-slate-50 hover:bg-amber-50/40 text-[#002B49] text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4 text-[#F2A900]" />
-                <span>+ Add Another Learner or Teacher Profile</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={isSigningInGoogle}
+                  onClick={handleGoogleSignIn}
+                  className="w-full py-2.5 px-4 rounded-2xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
+                    />
+                  </svg>
+                  <span>
+                    {isSigningInGoogle
+                      ? "Connecting to Google Cloud Profile..."
+                      : "Sign in with Google (Firebase Auth)"}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setIsAdding(true)}
+                  className="w-full py-3 rounded-2xl border-2 border-dashed border-[#002B49]/40 hover:border-[#002B49] bg-slate-50 hover:bg-amber-50/40 text-[#002B49] text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4 text-[#F2A900]" />
+                  <span>+ Add Another Learner or Teacher Profile</span>
+                </button>
+              </div>
             </>
           ) : (
             /* Add Profile Form with Real Avatar Selection */
@@ -260,6 +352,39 @@ export const ProfileManagerModal: React.FC<ProfileManagerModalProps> = ({
                   placeholder="e.g. Alliance High School or Nakuru Model Primary"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#002B49]"
                 />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <span>♿</span>
+                  <span>Disability Accommodation (Optional):</span>
+                </label>
+                <select
+                  value={disabilityAccommodation}
+                  onChange={(e) => setDisabilityAccommodation(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#002B49] bg-white font-semibold"
+                >
+                  <option value="None">None (Standard Curriculum Experience)</option>
+                  <option value="Low Vision">
+                    Low Vision & Visual Clarity (High Contrast / Audio)
+                  </option>
+                  <option value="Autism Spectrum Disorder">
+                    Autism Spectrum Disorder (ASD - Calm & Literal)
+                  </option>
+                  <option value="ADHD">ADHD & Executive Function (Focus Scaffolding)</option>
+                  <option value="Hearing Impairment">
+                    Hearing Impairment & Deaf (KSL Sign Language)
+                  </option>
+                  <option value="Dyslexia">
+                    Dyslexia & Reading Difficulty (TTS Audio / Speech Dictation)
+                  </option>
+                  <option value="Physical & Motor">
+                    Physical & Motor Accessibility (Large Controls)
+                  </option>
+                  <option value="Down Syndrome">
+                    Down Syndrome & Intellectual Disability (Foundation Stage)
+                  </option>
+                </select>
               </div>
 
               {/* Real Profile Image Selection */}

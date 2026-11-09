@@ -20,9 +20,10 @@ import { CbeStage, CbeGrade, SeniorSchoolPathway, CurriculumDesignItem } from ".
 
 interface CurriculumViewProps {
   onSelectTopic?: (learningArea: string, grade: string) => void;
+  onAskAITutor?: (prompt: string, subject: string) => void;
 }
 
-export const CurriculumView: React.FC<CurriculumViewProps> = ({ onSelectTopic }) => {
+export const CurriculumView: React.FC<CurriculumViewProps> = ({ onSelectTopic, onAskAITutor }) => {
   // Navigation drill-down state
   const [selectedStage, setSelectedStage] = useState<CbeStage>("Junior School");
   const [selectedGrade, setSelectedGrade] = useState<CbeGrade>("Grade 8");
@@ -459,12 +460,27 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({ onSelectTopic })
                       </h5>
                       <div className="flex flex-wrap gap-2">
                         {strand.subStrands.map((sub: string, subIdx: number) => (
-                          <span
+                          <div
                             key={subIdx}
-                            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-medium"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 font-medium"
                           >
-                            • {sub}
-                          </span>
+                            <span>• {sub}</span>
+                            {onAskAITutor && (
+                              <button
+                                onClick={() =>
+                                  onAskAITutor(
+                                    `Please explain the CBE curriculum sub-strand "${sub}" under Strand "${strand.title}" for ${activeLearningArea.name} (${currentGrade}). Provide key inquiry questions, core competencies, and practical Kenyan examples.`,
+                                    activeLearningArea.name,
+                                  )
+                                }
+                                className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-bold text-[#002B49] dark:text-[#F2A900] hover:underline cursor-pointer"
+                                title="Ask Mwalimu AI about this sub-strand"
+                              >
+                                <Sparkles className="w-3 h-3 text-[#F2A900]" />
+                                Ask AI
+                              </button>
+                            )}
+                          </div>
                         ))}
                       </div>
                     </div>

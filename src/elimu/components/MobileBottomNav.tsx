@@ -6,6 +6,9 @@ export type AppTabType =
   | "dashboard"
   | "library"
   | "curriculum"
+  | "coursework"
+  | "competencies"
+  | "school"
   | "exambank"
   | "quizzes"
   | "game"
@@ -14,7 +17,8 @@ export type AppTabType =
   | "offline"
   | "announcements"
   | "resources"
-  | "portfolio";
+  | "portfolio"
+  | "admin";
 
 interface MobileBottomNavProps {
   activeTab: AppTabType;
